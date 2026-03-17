@@ -26,4 +26,4 @@ env/
 *.swo
 
 # cursor
-.cursor/
+*.cursor/
