@@ -12,6 +12,9 @@ from pathlib import Path
 from typing import Optional
 import pandas as pd
 
+from src.data_loading import load_regular_season_results, load_tourney_seeds
+from src.game_results import make_long_regular_season_results
+
 # Input: DataFrames from data_loading (games, seeds, optional ratings).
 # Output: DataFrame with columns [Season, TeamID, win_pct, ppg, papg, ...].
 # Best practice: only use data available before tournament (e.g. regular season only for that season).
@@ -140,9 +143,73 @@ def get_recent_features(team_games: pd.DataFrame, num_games: Optional[int] = 10,
 
     return recent_features
 
-def combine_features(season_features: pd.DataFrame, recent_features: pd.DataFrame) -> pd.DataFrame:
+def get_seed_features(seeds: pd.DataFrame, season_min: Optional[int] = None, season_max: Optional[int] = None) -> pd.DataFrame:
     """
-    Combine season and recent features. Return a DataFrame with the combined features.
+    Get seed features from tourney seeds. Return a DataFrame with the seed features.
     """
-    return pd.merge(season_features, recent_features, on = ["Season", "TeamID"], how = "left")
+    df = seeds.copy()
+    if season_min is not None:
+        df = df[df["Season"] >= season_min]
+    if season_max is not None:
+        df = df[df["Season"] <= season_max]
+    df["seed_num"] = df["Seed"].str[1:3].astype(int)
+    return df
+
+
+def get_all_team_features(
+    season_min: Optional[int] = None, season_max: Optional[int] = None, num_games: Optional[int] = 10
+) -> pd.DataFrame:
+    """
+    Build all team features from raw Kaggle data.
+
+    Mirrors the feature-engineering notebook (minus sanity-check cells):
+    - Load detailed regular-season results.
+    - Create long-format team games (one row per team per game).
+    - Add advanced efficiency stats.
+    - Aggregate to season-level stats per (Season, TeamID).
+    - Build recent (last X games) stats.
+    - Merge in tournament seed-based features.
+    """
+    # Load detailed regular season results and build long-format team games.
+    games = load_regular_season_results(compact=False)
+    team_games = make_long_regular_season_results(games)
+
+    # Advanced per-game features, then aggregate and recent features.
+    advanced_games = build_advanced_features(
+        team_games, season_min=season_min, season_max=season_max
+    )
+    season_features = build_regular_season_team_stats(
+        advanced_games, season_min=season_min, season_max=season_max
+    )
+    recent_features = get_recent_features(
+        advanced_games, num_games=num_games, season_min=season_min, season_max=season_max
+    )
+
+    combined = combine_features(season_features, recent_features)
+
+    # Seed features from tournament seeds, optionally restricted by season range.
+    seeds = load_tourney_seeds()
+    seed_features = get_seed_features(seeds, season_min=season_min, season_max=season_max)[["Season", "TeamID", "seed_num"]]
+
+    return combined.merge(seed_features, on=["Season", "TeamID"], how="left")
+
+
+def combine_features(
+    season_features: pd.DataFrame, recent_features: pd.DataFrame
+) -> pd.DataFrame:
+    """
+    Combine season-long and recent features.
+
+    Returns one row per (Season, TeamID) with:
+    - Season aggregates: win_pct, avg_margin, off/def/net efficiency, etc.
+    - Recent form: lastx_win_pct, lastx_avg_margin, lastx_off/def/net_eff.
+    """
+    return pd.merge(
+        season_features,
+        recent_features,
+        on=["Season", "TeamID"],
+        how="left",
+    )
+
+
 
