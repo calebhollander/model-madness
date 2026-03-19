@@ -21,85 +21,113 @@ DATA_INTERIM = _PROJECT_ROOT / "data" / "interim"
 # Outputs: pandas DataFrames with consistent dtypes and no duplicate index issues.
 
 
-def load_teams(data_dir: Optional[Path] = None):
-    """Load MTeams.csv (and optionally WTeams.csv). Returns DataFrame with TeamID, TeamName, etc."""
+def _division_token(division: str) -> str:
+    """Map a logical division string to Kaggle filename token."""
+    d = str(division).strip().lower()
+    if d in {"men", "m"}:
+        return "M"
+    if d in {"women", "w"}:
+        return "W"
+    raise ValueError(f"Unsupported division {division!r}; expected 'men' or 'women'")
+
+
+def load_teams(data_dir: Optional[Path] = None, division: str = "men"):
+    """Load MTeams.csv or WTeams.csv by division."""
     data_dir = data_dir or DATA_RAW
-    return pd.read_csv(str(data_dir / "MTeams.csv"))
+    token = _division_token(division)
+    return pd.read_csv(str(data_dir / f"{token}Teams.csv"))
 
 
-def load_seasons(data_dir: Optional[Path] = None):
-    """Load MSeasons.csv. Returns DataFrame with Season, DayZero, etc."""
+def load_seasons(data_dir: Optional[Path] = None, division: str = "men"):
+    """Load MSeasons.csv or WSeasons.csv by division."""
     data_dir = data_dir or DATA_RAW
-    return pd.read_csv(str(data_dir / "MSeasons.csv"))
+    token = _division_token(division)
+    return pd.read_csv(str(data_dir / f"{token}Seasons.csv"))
 
 
-def load_tourney_results(data_dir: Optional[Path] = None, compact: bool = True):
-    """Load MNCAATourneyCompactResults (or Detailed). Returns Season, WTeamID, LTeamID, (WScore, LScore)."""
+def load_tourney_results(
+    data_dir: Optional[Path] = None,
+    compact: bool = False,
+    division: str = "men",
+):
+    """Load NCAA tourney results (compact or detailed) by division."""
     data_dir = data_dir or DATA_RAW
-    return pd.read_csv(str(data_dir / "MNCAATourneyDetailedResults.csv"))
+    token = _division_token(division)
+    stem = f"{token}NCAATourneyCompactResults.csv" if compact else f"{token}NCAATourneyDetailedResults.csv"
+    return pd.read_csv(str(data_dir / stem))
 
 
-def load_regular_season_results(data_dir: Optional[Path] = None, compact: bool = False):
-    """Load MRegularSeasonCompactResults (or Detailed). Returns game-level rows with WTeamID, LTeamID, scores."""
+def load_regular_season_results(
+    data_dir: Optional[Path] = None,
+    compact: bool = False,
+    division: str = "men",
+):
+    """Load regular-season results (compact or detailed) by division."""
     data_dir = data_dir or DATA_RAW
-    return (
-        pd.read_csv(str(data_dir / "MRegularSeasonCompactResults.csv"))
-        if compact
-        else pd.read_csv(str(data_dir / "MRegularSeasonDetailedResults.csv"))
-    )
+    token = _division_token(division)
+    stem = f"{token}RegularSeasonCompactResults.csv" if compact else f"{token}RegularSeasonDetailedResults.csv"
+    return pd.read_csv(str(data_dir / stem))
 
 
-def load_tourney_seeds(data_dir: Optional[Path] = None):
-    """Load MNCAATourneySeeds.csv. Returns Season, Seed, TeamID."""
+def load_tourney_seeds(data_dir: Optional[Path] = None, division: str = "men"):
+    """Load NCAA tourney seeds by division."""
     data_dir = data_dir or DATA_RAW
-    return pd.read_csv(str(data_dir / "MNCAATourneySeeds.csv"))
+    token = _division_token(division)
+    return pd.read_csv(str(data_dir / f"{token}NCAATourneySeeds.csv"))
 
 
-def load_tourney_slots(data_dir: Optional[Path] = None):
-    """Load MNCAATourneySlots.csv. Returns slot structure for bracket (Season, Slot, StrongSeed, WeakSeed)."""
+def load_tourney_slots(data_dir: Optional[Path] = None, division: str = "men"):
+    """Load NCAA tourney slots by division."""
     data_dir = data_dir or DATA_RAW
-    return pd.read_csv(str(data_dir / "MNCAATourneySlots.csv"))
+    token = _division_token(division)
+    return pd.read_csv(str(data_dir / f"{token}NCAATourneySlots.csv"))
 
-def load_team_names(data_dir: Optional[Path] = None):
-    """Load MTeamSpellings.csv (columns ``TeamNameSpelling``, ``TeamID``)."""
+
+def load_team_names(data_dir: Optional[Path] = None, division: str = "men"):
+    """Load team spellings CSV by division."""
     data_dir = data_dir or DATA_RAW
-    return pd.read_csv(str(data_dir / "MTeamSpellings.csv"))
+    token = _division_token(division)
+    return pd.read_csv(str(data_dir / f"{token}TeamSpellings.csv"))
 
-def load_all_raw(data_dir: Optional[Path] = None):
+
+def load_all_raw(data_dir: Optional[Path] = None, division: str = "men"):
     """
     Load all required Kaggle CSVs into a dict or named tuple of DataFrames.
     Keys: teams, seasons, tourney_results, regular_season_results, tourney_seeds, tourney_slots, (optional) massey, spellings).
     """
 
     return {
-        "teams": load_teams(data_dir),
-        "seasons": load_seasons(data_dir),
-        "tourney_results": load_tourney_results(data_dir),
-        "regular_season_results": load_regular_season_results(data_dir),
-        "tourney_seeds": load_tourney_seeds(data_dir),
-        "tourney_slots": load_tourney_slots(data_dir),
+        "teams": load_teams(data_dir, division=division),
+        "seasons": load_seasons(data_dir, division=division),
+        "tourney_results": load_tourney_results(data_dir, division=division),
+        "regular_season_results": load_regular_season_results(data_dir, division=division),
+        "tourney_seeds": load_tourney_seeds(data_dir, division=division),
+        "tourney_slots": load_tourney_slots(data_dir, division=division),
     }
 
-def load_matchup_data(data_dir: Optional[Path] = None):
+
+def load_matchup_data(data_dir: Optional[Path] = None, division: str = "men"):
     """
     Load detailedtournament matchup data.
     """
     data_dir = data_dir or DATA_RAW
-    return pd.read_csv(str(data_dir / "MNCAATourneyDetailedResults.csv"))
+    return load_tourney_results(data_dir=data_dir, compact=False, division=division)
 
-def load_season_data(data_dir: Optional[Path] = None):
+
+def load_season_data(data_dir: Optional[Path] = None, division: str = "men"):
     """
     Load season data from the interim directory.
     """
     data_dir = data_dir or DATA_INTERIM
-    return pd.read_csv(str(data_dir / "men_team_features.csv"))
+    return pd.read_csv(str(data_dir / f"{division}_team_features.csv"))
 
-def load_matchup_training_data(data_dir: Optional[Path] = None):
+
+def load_matchup_training_data(data_dir: Optional[Path] = None, division: str = "men"):
     """
     Load matchup training data from the interim directory.
     """
     data_dir = data_dir or DATA_INTERIM
-    df = pd.read_csv(str(data_dir / "men_train_matchups.csv"))
+    df = pd.read_csv(str(data_dir / f"{division}_train_matchups.csv"))
     # Alias for models that expect last-10 naming; same as lastx when recent form uses 10 games.
     if "last10_net_eff_diff" not in df.columns and "lastx_net_eff_diff" in df.columns:
         df = df.copy()

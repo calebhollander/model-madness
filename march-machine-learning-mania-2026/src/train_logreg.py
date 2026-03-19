@@ -77,6 +77,7 @@ def train_logreg(
     Y = None,
     sample_weight=None,
     run_feature_selection: bool = True,
+    division: str = "men",
     **kwargs,
 ) -> tuple[LogisticRegression, list[str]]:
     """
@@ -101,7 +102,7 @@ def train_logreg(
     model_params = config.MODEL_PARAMS["logreg"]
     model_params.update(kwargs)
 
-    df = load_matchup_training_data()
+    df = load_matchup_training_data(division=division)
 
     train_df, val_df = split_matchup_train_val(df)
 
@@ -158,6 +159,7 @@ def save_logreg_artifacts(
     feature_names: list[str],
     model_path: Optional[Union[str, Path]] = None,
     features_path: Optional[Union[str, Path]] = None,
+    division: str = "men",
 ) -> tuple[Path, Path]:
     """
     Persist the sklearn estimator and the ordered feature list for inference
@@ -168,8 +170,8 @@ def save_logreg_artifacts(
     else:
         config.MODELS_DIR.mkdir(parents=True, exist_ok=True)
 
-    model_path = Path(model_path or config.MODELS_DIR / "logreg_men.pkl")
-    features_path = Path(features_path or config.MODELS_DIR / "logreg_men_features.json")
+    model_path = Path(model_path or config.MODELS_DIR / f"logreg_{division}.pkl")
+    features_path = Path(features_path or config.MODELS_DIR / f"logreg_{division}_features.json")
     joblib.dump(model, model_path)
     features_path.write_text(json.dumps(feature_names, indent=2), encoding="utf-8")
     return model_path, features_path

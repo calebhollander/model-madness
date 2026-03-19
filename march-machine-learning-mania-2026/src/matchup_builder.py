@@ -21,9 +21,10 @@ from src.data_loading import load_season_data, load_matchup_data
 def _load_filtered_sources(
     season_min: Optional[int] = None,
     season_max: Optional[int] = None,
+    division: str = "men",
 ):
-    season_features = load_season_data()
-    tourney_games = load_matchup_data()
+    season_features = load_season_data(division=division)
+    tourney_games = load_matchup_data(division=division)
 
     if season_min is not None:
         season_features = season_features[season_features["Season"] >= season_min]
@@ -208,6 +209,7 @@ def _select_training_columns(matchups: pd.DataFrame) -> pd.DataFrame:
 def build_matchup_data(
     season_min: Optional[int] = None,
     season_max: Optional[int] = None,
+    division: str = "men",
 ):
     """
     Build pairwise rows: for each game, compute feature_diffs (TeamA - TeamB)
@@ -218,6 +220,7 @@ def build_matchup_data(
     season_features, tourney_games = _load_filtered_sources(
         season_min=season_min,
         season_max=season_max,
+        division=division,
     )
     matchups = _build_labeled_matchups(tourney_games)
     team_a_features, team_b_features = _split_team_features(season_features)

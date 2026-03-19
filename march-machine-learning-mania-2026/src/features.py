@@ -157,7 +157,10 @@ def get_seed_features(seeds: pd.DataFrame, season_min: Optional[int] = None, sea
 
 
 def get_all_team_features(
-    season_min: Optional[int] = None, season_max: Optional[int] = None, num_games: Optional[int] = 10
+    season_min: Optional[int] = None,
+    season_max: Optional[int] = None,
+    num_games: Optional[int] = 10,
+    division: str = "men",
 ) -> pd.DataFrame:
     """
     Build all team features from raw Kaggle data.
@@ -170,8 +173,8 @@ def get_all_team_features(
     - Build recent (last X games) stats.
     - Merge in tournament seed-based features.
     """
-    # Load detailed regular season results and build long-format team games.
-    games = load_regular_season_results(compact=False)
+    # Load division-specific detailed regular season results and build long-format team games.
+    games = load_regular_season_results(compact=False, division=division)
     team_games = make_long_regular_season_results(games)
 
     # Advanced per-game features, then aggregate and recent features.
@@ -187,8 +190,8 @@ def get_all_team_features(
 
     combined = combine_features(season_features, recent_features)
 
-    # Seed features from tournament seeds, optionally restricted by season range.
-    seeds = load_tourney_seeds()
+    # Seed features from division-specific tournament seeds.
+    seeds = load_tourney_seeds(division=division)
     seed_features = get_seed_features(seeds, season_min=season_min, season_max=season_max)[["Season", "TeamID", "seed_num"]]
 
     return combined.merge(seed_features, on=["Season", "TeamID"], how="left")

@@ -24,6 +24,7 @@ from src.train_logreg import FEATURES
 def train_xgb(
     features: Optional[list[str]] = None,
     save_model: bool = True,
+    division: str = "men",
     **kwargs: Any,
 ) -> xgb.XGBClassifier:
     """
@@ -62,7 +63,7 @@ def train_xgb(
 
     feat_list = list(features) if features is not None else list(FEATURES)
 
-    df = load_matchup_training_data()
+    df = load_matchup_training_data(division=division)
     train_df, val_df = split_matchup_train_val(df)
 
     X_train = train_df[feat_list]
@@ -93,11 +94,11 @@ def train_xgb(
     print(importance)
 
     if save_model:
-        xgb_json_path = config.MODELS_DIR / "xgb_men.json"
+        xgb_json_path = config.MODELS_DIR / f"xgb_{division}.json"
         model.save_model(str(xgb_json_path))
         # Preserve backward compatibility with existing inference code that
         # currently loads the pickled estimator.
-        xgb_pkl_path = config.MODELS_DIR / "xgb_men.pkl"
+        xgb_pkl_path = config.MODELS_DIR / f"xgb_{division}.pkl"
         joblib.dump(model, xgb_pkl_path)
 
     return model
