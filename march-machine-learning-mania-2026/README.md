@@ -24,7 +24,7 @@ This repository implements an end-to-end pipeline that trains on historical NCAA
 1. **Data loading** — Read Kaggle CSVs into clean DataFrames (`src/data_loading.py`).
 2. **Feature engineering** — Build season-level team statistics from regular-season (and optionally other) data (`src/features.py`).
 3. **Matchup generation** — Convert team-level features into pairwise rows with **feature differences** (Team A stat minus Team B stat) and target (`src/matchup_builder.py`).
-4. **Model training** — Train logistic regression, XGBoost, and an Elo-style rating model (`src/train_logreg.py`, `src/train_xgb.py`, `src/ratings.py`).
+4. **Model training** — Train logistic regression and XGBoost on matchup diffs (`src/train_logreg.py`, `src/train_xgb.py`). An Elo-style ratings module exists as a stub (`src/ratings.py`) for future blending.
 5. **Validation** — Time-based cross-validation by season (train on past seasons, validate on a single future season); never use a random split (`src/validation.py`).
 6. **Calibration and ensembling** — Calibrate probabilities and blend model outputs (`src/calibrate.py`, `src/ensemble.py`).
 7. **Submission generation** — Read the sample submission, generate predictions, clip probabilities, and write `submission.csv` (`src/submit.py`).
@@ -32,16 +32,54 @@ This repository implements an end-to-end pipeline that trains on historical NCAA
 
 ## Feature engineering philosophy
 
-- **Team-level first:** One row per (Season, TeamID) with aggregate stats (e.g. win rate, points per game, points allowed, efficiency, seed rank, rating).
+- **Team-level first:** One row per (Season, TeamID) with aggregate stats (e.g. win rate, points per game, points allowed, efficiency, seed rank).
 - **Matchup-level by differences:** For each (Season, Team A, Team B), use **differences** (A − B) of those stats as model inputs. This keeps features comparable and reduces leakage.
 - **No future data:** Use only information available before the game (e.g. regular-season games for that season only; no tournament games in the training target for that season).
+
+## Feature set and selection
+
+### What gets built from the raw data
+
+Features start from **detailed** regular-season results (not compact boxes), reshaped to one row per team per game (`src/game_results.py`, `src/features.py`). Per-game helpers use standard basketball analytics conventions:
+
+- **Possessions** — Approximated from FGA, offensive rebounds, turnovers, and FTA (0.475 weight), averaged with the opponent’s possession estimate for that game.
+- **Shooting and ball security** — Effective FG% (counts made threes), turnover rate (TO per possession), offensive rebound rate (OR vs opponent DR), free-throw rate (FTA / FGA).
+- **Efficiency** — Offensive / defensive / net efficiency (points per 100 estimated possessions).
+
+Those per-game fields are aggregated to **one row per (Season, TeamID)** in two horizons:
+
+1. **Season-long means** — Games played, win rate, average scoring margin, average points for/against, mean off/def/net efficiency, and mean eFG%, TOV%, ORB%, FTR.
+2. **Recent form** — Same style of stats over the **last *N* regular-season games** (default *N* = 10) before the aggregation step: recent win rate, margin, and efficiencies (`get_recent_features` in `src/features.py`).
+
+**Tournament seed** is merged in as a numeric seed (`seed_num`) from the competition seed string.
+
+For modeling, **only matchup-level inputs** are used: for each ordered pair (Team A, Team B), every numeric team stat becomes **Team A − Team B** (`src/matchup_builder.py`). That is the full diff feature pool (e.g. `seed_diff`, `win_pct_diff`, efficiency diffs, Four Factors–style diffs, and recent-form diffs). The constant `DIFF_FEATURE_COLUMNS` lists every diff column the pipeline can emit.
+
+### How the set was narrowed (logistic regression)
+
+Logistic regression uses **greedy forward selection on validation log loss**, implemented in `train_logreg()` (`src/train_logreg.py`), on the same **time-ordered train/validation split** as the rest of the pipeline (`split_matchup_train_val` in `src/splits.py`—past seasons for training, a held-out season for validation—never a random row split).
+
+1. **Baseline block (always included first)** — Strong, interpretable signals that bracket committee and season performance already summarize: `seed_diff`, `avg_margin_diff`, `off_eff_diff`, `def_eff_diff`, `net_eff_diff`, `win_pct_diff`.
+2. **Candidate block (tried in a fixed order)** — Each candidate is **appended to the working feature set** (baseline plus any candidates already kept earlier in the list); it **stays** only if validation log loss improves versus the best score seen so far:
+   - `efg_pct_diff`, `tov_pct_diff`, `orb_pct_diff`, `ftr_diff` (Four Factors–style differences at season level).
+   - `last10_net_eff_diff` (recent net efficiency gap; equivalent to `lastx_net_eff_diff` when the recent window is 10 games).
+
+On a representative training run (see `notebooks/03_modeling.ipynb`), that procedure **rejected** eFG and TOV diffs (they did not beat validation loss when added after the baseline), **kept** ORB% and FTR diffs (they helped), and **rejected** the last-10 net efficiency diff (it hurt—likely redundant with season net efficiency and margin). The resulting **eight-feature** logistic model is what gets saved to `models/logreg_*_features.json` for inference.
+
+This is intentionally **simple and loss-driven**: no separate filter for correlation; the split decides whether a candidate earns its parameters under log loss.
+
+### XGBoost and inference
+
+**XGBoost** is trained on the **full default column list** in `src/train_logreg.py`—baseline plus **all** candidate diffs (`FEATURES`), i.e. a wider set than the greedily selected logistic subset. Gain-based importances (printed in training and optionally `outputs/feature_importance.csv`) typically rank `seed_diff`, margin, and efficiency diffs highly, with secondary mass on the Four Factors and recent-form diffs.
+
+At Stage 2 inference (`src/predict_2026.py`), **logistic regression** uses the **saved feature order** from JSON (the selected subset), while **XGBoost** uses the **full `FEATURES` list**, so the two models do not always consume identical columns even though they share the same underlying team feature table.
 
 ## Modeling approach
 
 - **Logistic regression:** Simple baseline on feature differences; outputs probabilities.
 - **XGBoost:** Gradient boosting on the same features; tune with time-based CV; keep complexity moderate (e.g. shallow trees) given dataset size.
-- **Elo-style ratings:** Single rating per (Season, TeamID) from game results; convert to win probability and blend with the above.
-- **Ensemble:** Weighted (or equal) average of the three probability outputs; then calibrate and clip before submission.
+- **Elo-style ratings:** Scaffold only in `src/ratings.py` (not used in the default submission path).
+- **Ensemble:** Default submission blends **logistic regression and XGBoost** probabilities (equal or weighted), then clips; see `src/submit.py` and `src/ensemble.py`.
 
 ## Evaluation
 
@@ -62,7 +100,7 @@ This repository implements an end-to-end pipeline that trains on historical NCAA
 
 3. **Execution order**
    - Load data → build team stats → build matchup dataset (with feature diffs).
-   - Run time-based CV and train models (logreg, XGB, ratings).
+   - Run time-based CV and train models (logreg, XGB).
    - Calibrate and ensemble → generate predictions for the sample submission → write `submission.csv`.
    - Optionally run bracket simulation and write results to `outputs/simulation_results.csv`.
 
